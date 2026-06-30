@@ -7,10 +7,14 @@ import { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
+import { ProjectAccessService } from './project-access.service';
 
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly projectAccessService: ProjectAccessService,
+  ) {}
 
   async create(userId: string, dto: CreateProjectDto) {
     const project = await this.prisma.project.create({
@@ -95,7 +99,7 @@ export class ProjectsService {
   }
 
   async findOne(userId: string, projectId: string) {
-    await this.ensureProjectMember(userId, projectId);
+    await this.projectAccessService.ensureProjectMember(userId, projectId);
 
     const project = await this.prisma.project.findFirst({
       where: {
@@ -143,7 +147,7 @@ export class ProjectsService {
   }
 
   async update(userId: string, projectId: string, dto: UpdateProjectDto) {
-    await this.ensureProjectOwner(userId, projectId);
+    await this.projectAccessService.ensureProjectOwner(userId, projectId);
 
     const project = await this.prisma.project.update({
       where: {
@@ -162,7 +166,7 @@ export class ProjectsService {
   }
 
   async archive(userId: string, projectId: string) {
-    await this.ensureProjectOwner(userId, projectId);
+    await this.projectAccessService.ensureProjectOwner(userId, projectId);
 
     await this.prisma.project.update({
       where: {
@@ -176,35 +180,5 @@ export class ProjectsService {
     return {
       message: 'Project archived successfully',
     };
-  }
-
-  private async ensureProjectMember(userId: string, projectId: string) {
-    const member = await this.prisma.projectMember.findUnique({
-      where: {
-        projectId_userId: {
-          projectId,
-          userId,
-        },
-      },
-      include: {
-        project: true,
-      },
-    });
-
-    if (!member || member.project.isArchived) {
-      throw new NotFoundException('Project not found');
-    }
-
-    return member;
-  }
-
-  private async ensureProjectOwner(userId: string, projectId: string) {
-    const member = await this.ensureProjectMember(userId, projectId);
-
-    if (member.role !== ProjectRole.OWNER) {
-      throw new ForbiddenException('Only project owner can perform this action');
-    }
-
-    return member;
   }
 }
