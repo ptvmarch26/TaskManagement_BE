@@ -9,6 +9,12 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 
 import { AuthService } from './auth.service';
@@ -24,17 +30,26 @@ type RequestWithCookies = Request & {
   };
 };
 
+@ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   private readonly refreshTokenCookieName = 'refreshToken';
 
   constructor(private readonly authService: AuthService) {}
 
+  @ApiOperation({ summary: 'Register a new user' })
+  @ApiResponse({ status: 201, description: 'Registered successfully' })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
+  @ApiResponse({ status: 409, description: 'Email already exists' })
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
 
+  @ApiOperation({ summary: 'Login and receive access token' })
+  @ApiResponse({ status: 200, description: 'Logged in successfully' })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
+  @ApiResponse({ status: 401, description: 'Invalid email or password' })
   @HttpCode(HttpStatus.OK)
   @Post('login')
   async login(
@@ -57,6 +72,9 @@ export class AuthController {
     };
   }
 
+  @ApiOperation({ summary: 'Refresh access token using httpOnly cookie' })
+  @ApiResponse({ status: 200, description: 'Token refreshed successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid or missing refresh token' })
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(
@@ -80,6 +98,8 @@ export class AuthController {
     };
   }
 
+  @ApiOperation({ summary: 'Logout and revoke refresh token' })
+  @ApiResponse({ status: 200, description: 'Logged out successfully' })
   @HttpCode(HttpStatus.OK)
   @Post('logout')
   async logout(
@@ -95,6 +115,13 @@ export class AuthController {
     return result;
   }
 
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get current authenticated user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Current user returned successfully',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @UseGuards(JwtAuthGuard)
   @Get('me')
   getMe(@CurrentUser() user: AuthUser) {
