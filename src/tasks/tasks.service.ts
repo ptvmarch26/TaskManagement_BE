@@ -3,9 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ProjectRole, TaskStatus } from '@prisma/client';
+import { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
@@ -15,6 +16,7 @@ export class TasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectAccessService: ProjectAccessService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   async create(userId: string, projectId: string, dto: CreateTaskDto) {
@@ -31,7 +33,6 @@ export class TasksService {
       await this.ensureAssigneeIsProjectMember(projectId, dto.assigneeId);
     }
 
-
     const task = await this.prisma.task.create({
       data: {
         projectId,
@@ -43,6 +44,20 @@ export class TasksService {
         assigneeId: dto.assigneeId,
       },
       include: this.taskInclude(),
+    });
+
+    await this.auditLogsService.createLog({
+      projectId,
+      actorId: userId,
+      action: 'TASK_CREATED',
+      entity: 'Task',
+      entityId: task.id,
+      newValue: {
+        title: task.title,
+        priority: task.priority,
+        status: task.status,
+        assigneeId: task.assigneeId,
+      },
     });
 
     return {
@@ -75,10 +90,7 @@ export class TasksService {
   async findOne(userId: string, taskId: string) {
     const task = await this.findTaskOrThrow(taskId);
 
-    await this.projectAccessService.ensureProjectMember(
-      userId,
-      task.projectId,
-    );
+    await this.projectAccessService.ensureProjectMember(userId, task.projectId);
 
     return {
       task,
@@ -130,17 +142,35 @@ export class TasksService {
       include: this.taskInclude(),
     });
 
+    await this.auditLogsService.createLog({
+      projectId: task.projectId,
+      actorId: userId,
+      action: 'TASK_UPDATED',
+      entity: 'Task',
+      entityId: task.id,
+      oldValue: {
+        title: task.title,
+        description: task.description,
+        priority: task.priority,
+        dueDate: task.dueDate?.toISOString() ?? null,
+        assigneeId: task.assigneeId,
+      },
+      newValue: {
+        title: updatedTask.title,
+        description: updatedTask.description,
+        priority: updatedTask.priority,
+        dueDate: updatedTask.dueDate?.toISOString() ?? null,
+        assigneeId: updatedTask.assigneeId,
+      },
+    });
+
     return {
       message: 'Task updated successfully',
       task: updatedTask,
     };
   }
 
-  async updateStatus(
-    userId: string,
-    taskId: string,
-    dto: UpdateTaskStatusDto,
-  ) {
+  async updateStatus(userId: string, taskId: string, dto: UpdateTaskStatusDto) {
     const task = await this.findTaskOrThrow(taskId);
 
     const actorMember = await this.projectAccessService.ensureProjectMember(
@@ -172,6 +202,20 @@ export class TasksService {
       include: this.taskInclude(),
     });
 
+    await this.auditLogsService.createLog({
+      projectId: task.projectId,
+      actorId: userId,
+      action: 'TASK_STATUS_UPDATED',
+      entity: 'Task',
+      entityId: task.id,
+      oldValue: {
+        status: task.status,
+      },
+      newValue: {
+        status: updatedTask.status,
+      },
+    });
+
     return {
       message: 'Task status updated successfully',
       task: updatedTask,
@@ -189,6 +233,20 @@ export class TasksService {
     await this.prisma.task.delete({
       where: {
         id: taskId,
+      },
+    });
+
+    await this.auditLogsService.createLog({
+      projectId: task.projectId,
+      actorId: userId,
+      action: 'TASK_DELETED',
+      entity: 'Task',
+      entityId: task.id,
+      oldValue: {
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        assigneeId: task.assigneeId,
       },
     });
 
@@ -230,6 +288,10 @@ export class TasksService {
 
     if (!assigneeMember) {
       throw new NotFoundException('Assignee is not a project member');
+    }
+
+    if (assigneeMember.role === ProjectRole.VIEWER) {
+      throw new ForbiddenException('Viewer cannot be assigned to task');
     }
 
     return assigneeMember;

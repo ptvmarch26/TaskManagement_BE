@@ -1,9 +1,5 @@
-import {
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { ProjectRole } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -41,6 +37,19 @@ export class ProjectsService {
             },
           },
         },
+      },
+    });
+
+    await this.createProjectAuditLog({
+      projectId: project.id,
+      actorId: userId,
+      action: 'PROJECT_CREATED',
+      entity: 'Project',
+      entityId: project.id,
+      newValue: {
+        name: project.name,
+        description: project.description,
+        ownerId: project.ownerId,
       },
     });
 
@@ -90,11 +99,14 @@ export class ProjectsService {
     });
 
     return {
-      projects: projects.map((project) => ({
-        ...project,
-        myRole: project.members[0]?.role,
-        members: undefined,
-      })),
+      projects: projects.map((project) => {
+        const { members, ...rest } = project;
+
+        return {
+          ...rest,
+          myRole: members[0]?.role,
+        };
+      }),
     };
   }
 
@@ -147,7 +159,12 @@ export class ProjectsService {
   }
 
   async update(userId: string, projectId: string, dto: UpdateProjectDto) {
-    await this.projectAccessService.ensureProjectOwner(userId, projectId);
+    const ownerMember = await this.projectAccessService.ensureProjectOwner(
+      userId,
+      projectId,
+    );
+
+    const oldProject = ownerMember.project;
 
     const project = await this.prisma.project.update({
       where: {
@@ -159,6 +176,22 @@ export class ProjectsService {
       },
     });
 
+    await this.createProjectAuditLog({
+      projectId,
+      actorId: userId,
+      action: 'PROJECT_UPDATED',
+      entity: 'Project',
+      entityId: projectId,
+      oldValue: {
+        name: oldProject.name,
+        description: oldProject.description,
+      },
+      newValue: {
+        name: project.name,
+        description: project.description,
+      },
+    });
+
     return {
       message: 'Project updated successfully',
       project,
@@ -166,9 +199,14 @@ export class ProjectsService {
   }
 
   async archive(userId: string, projectId: string) {
-    await this.projectAccessService.ensureProjectOwner(userId, projectId);
+    const ownerMember = await this.projectAccessService.ensureProjectOwner(
+      userId,
+      projectId,
+    );
 
-    await this.prisma.project.update({
+    const oldProject = ownerMember.project;
+
+    const project = await this.prisma.project.update({
       where: {
         id: projectId,
       },
@@ -177,8 +215,48 @@ export class ProjectsService {
       },
     });
 
+    await this.createProjectAuditLog({
+      projectId,
+      actorId: userId,
+      action: 'PROJECT_ARCHIVED',
+      entity: 'Project',
+      entityId: projectId,
+      oldValue: {
+        name: oldProject.name,
+        description: oldProject.description,
+        isArchived: oldProject.isArchived,
+      },
+      newValue: {
+        name: project.name,
+        description: project.description,
+        isArchived: project.isArchived,
+      },
+    });
+
     return {
       message: 'Project archived successfully',
     };
+  }
+
+  private async createProjectAuditLog(params: {
+    projectId: string;
+    actorId: string;
+    action: string;
+    entity: string;
+    entityId?: string;
+    oldValue?: Prisma.InputJsonValue;
+    newValue?: Prisma.InputJsonValue;
+  }) {
+    return this.prisma.auditLog.create({
+      data: {
+        projectId: params.projectId,
+        actorId: params.actorId,
+        action: params.action,
+        entity: params.entity,
+        entityId: params.entityId,
+        oldValue: params.oldValue,
+        newValue: params.newValue,
+      },
+    });
   }
 }

@@ -8,6 +8,7 @@ import {
 import { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AddProjectMemberDto } from './dto/add-project-member.dto';
 import { UpdateProjectMemberRoleDto } from './dto/update-project-member-role.dto';
 
@@ -16,6 +17,7 @@ export class ProjectMembersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectAccessService: ProjectAccessService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   async findMembers(userId: string, projectId: string) {
@@ -112,6 +114,19 @@ export class ProjectMembersService {
       },
     });
 
+    await this.auditLogsService.createLog({
+      projectId,
+      actorId: userId,
+      action: 'MEMBER_ADDED',
+      entity: 'ProjectMember',
+      entityId: member.id,
+      newValue: {
+        userId: member.userId,
+        email: member.user.email,
+        role: member.role,
+      },
+    });
+
     return {
       message: 'Member added successfully',
       member,
@@ -147,6 +162,13 @@ export class ProjectMembersService {
       throw new BadRequestException('Cannot change owner role');
     }
 
+    if (targetMember.role === dto.role) {
+      return {
+        message: 'Member role is already up to date',
+        member: targetMember,
+      };
+    }
+
     const member = await this.prisma.projectMember.update({
       where: {
         projectId_userId: {
@@ -166,6 +188,22 @@ export class ProjectMembersService {
             avatarUrl: true,
           },
         },
+      },
+    });
+
+    await this.auditLogsService.createLog({
+      projectId,
+      actorId: userId,
+      action: 'MEMBER_ROLE_UPDATED',
+      entity: 'ProjectMember',
+      entityId: member.id,
+      oldValue: {
+        userId: targetMember.userId,
+        role: targetMember.role,
+      },
+      newValue: {
+        userId: member.userId,
+        role: member.role,
       },
     });
 
@@ -216,6 +254,18 @@ export class ProjectMembersService {
           projectId,
           userId: targetUserId,
         },
+      },
+    });
+
+    await this.auditLogsService.createLog({
+      projectId,
+      actorId: userId,
+      action: 'MEMBER_REMOVED',
+      entity: 'ProjectMember',
+      entityId: targetMember.id,
+      oldValue: {
+        userId: targetMember.userId,
+        role: targetMember.role,
       },
     });
 

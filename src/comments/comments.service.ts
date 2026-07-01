@@ -6,6 +6,7 @@ import {
 import { ProjectRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 
@@ -14,6 +15,7 @@ export class CommentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projectAccessService: ProjectAccessService,
+    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   async findTaskComments(userId: string, taskId: string) {
@@ -57,6 +59,19 @@ export class CommentsService {
       include: this.commentInclude(),
     });
 
+    await this.auditLogsService.createLog({
+      projectId: task.projectId,
+      actorId: userId,
+      action: 'COMMENT_CREATED',
+      entity: 'Comment',
+      entityId: comment.id,
+      newValue: {
+        taskId: comment.taskId,
+        authorId: comment.authorId,
+        content: comment.content,
+      },
+    });
+
     return {
       message: 'Comment created successfully',
       comment,
@@ -87,6 +102,24 @@ export class CommentsService {
         content: dto.content.trim(),
       },
       include: this.commentInclude(),
+    });
+
+    await this.auditLogsService.createLog({
+      projectId: comment.task.projectId,
+      actorId: userId,
+      action: 'COMMENT_UPDATED',
+      entity: 'Comment',
+      entityId: comment.id,
+      oldValue: {
+        taskId: comment.taskId,
+        authorId: comment.authorId,
+        content: comment.content,
+      },
+      newValue: {
+        taskId: updatedComment.taskId,
+        authorId: updatedComment.authorId,
+        content: updatedComment.content,
+      },
     });
 
     return {
@@ -120,6 +153,19 @@ export class CommentsService {
     await this.prisma.comment.delete({
       where: {
         id: commentId,
+      },
+    });
+
+    await this.auditLogsService.createLog({
+      projectId: comment.task.projectId,
+      actorId: userId,
+      action: 'COMMENT_DELETED',
+      entity: 'Comment',
+      entityId: comment.id,
+      oldValue: {
+        taskId: comment.taskId,
+        authorId: comment.authorId,
+        content: comment.content,
       },
     });
 
