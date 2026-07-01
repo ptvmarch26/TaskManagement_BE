@@ -4,9 +4,10 @@ import { ProjectsModule } from '../projects/projects.module';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [AuthModule, ProjectsModule, AuditLogsModule],
+  imports: [AuthModule, ProjectsModule, AuditLogsModule, NotificationsModule],
   controllers: [CommentsController],
   providers: [CommentsService],
 })

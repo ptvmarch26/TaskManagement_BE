@@ -3,7 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ProjectRole } from '@prisma/client';
+import { NotificationType, ProjectRole } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -16,6 +17,7 @@ export class CommentsService {
     private readonly prisma: PrismaService,
     private readonly projectAccessService: ProjectAccessService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findTaskComments(userId: string, taskId: string) {
@@ -71,6 +73,27 @@ export class CommentsService {
         content: comment.content,
       },
     });
+
+    const recipientIds = new Set<string>();
+
+    if (task.creatorId !== userId) {
+      recipientIds.add(task.creatorId);
+    }
+
+    if (task.assigneeId && task.assigneeId !== userId) {
+      recipientIds.add(task.assigneeId);
+    }
+
+    await this.notificationsService.createManyNotifications(
+      [...recipientIds].map((recipientId) => ({
+        userId: recipientId,
+        projectId: task.projectId,
+        taskId: task.id,
+        type: NotificationType.COMMENT_CREATED,
+        title: 'New comment on task',
+        message: `A new comment was added to task "${task.title}".`,
+      })),
+    );
 
     return {
       message: 'Comment created successfully',
@@ -184,7 +207,10 @@ export class CommentsService {
       },
       select: {
         id: true,
+        title: true,
         projectId: true,
+        creatorId: true,
+        assigneeId: true,
       },
     });
 

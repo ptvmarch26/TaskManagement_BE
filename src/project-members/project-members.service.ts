@@ -5,7 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ProjectRole } from '@prisma/client';
+import { NotificationType, ProjectRole } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -18,6 +19,7 @@ export class ProjectMembersService {
     private readonly prisma: PrismaService,
     private readonly projectAccessService: ProjectAccessService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async findMembers(userId: string, projectId: string) {
@@ -111,6 +113,12 @@ export class ProjectMembersService {
             avatarUrl: true,
           },
         },
+        project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
       },
     });
 
@@ -125,6 +133,14 @@ export class ProjectMembersService {
         email: member.user.email,
         role: member.role,
       },
+    });
+
+    await this.notificationsService.createNotification({
+      userId: targetUser.id,
+      projectId,
+      type: NotificationType.MEMBER_ADDED,
+      title: 'You were added to a project',
+      message: `You were added to project "${member.project.name}" as ${member.role}.`,
     });
 
     return {

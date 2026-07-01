@@ -3,7 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ProjectRole } from '@prisma/client';
+import { NotificationType, ProjectRole } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ProjectAccessService } from '../projects/project-access.service';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -17,6 +18,7 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly projectAccessService: ProjectAccessService,
     private readonly auditLogsService: AuditLogsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async create(userId: string, projectId: string, dto: CreateTaskDto) {
@@ -59,6 +61,17 @@ export class TasksService {
         assigneeId: task.assigneeId,
       },
     });
+
+    if (task.assigneeId && task.assigneeId !== userId) {
+      await this.notificationsService.createNotification({
+        userId: task.assigneeId,
+        projectId: task.projectId,
+        taskId: task.id,
+        type: NotificationType.TASK_ASSIGNED,
+        title: 'You were assigned a task',
+        message: `You were assigned to task "${task.title}".`,
+      });
+    }
 
     return {
       message: 'Task created successfully',
@@ -163,6 +176,21 @@ export class TasksService {
         assigneeId: updatedTask.assigneeId,
       },
     });
+
+    if (
+      updatedTask.assigneeId &&
+      updatedTask.assigneeId !== task.assigneeId &&
+      updatedTask.assigneeId !== userId
+    ) {
+      await this.notificationsService.createNotification({
+        userId: updatedTask.assigneeId,
+        projectId: updatedTask.projectId,
+        taskId: updatedTask.id,
+        type: NotificationType.TASK_ASSIGNED,
+        title: 'You were assigned a task',
+        message: `You were assigned to task "${updatedTask.title}".`,
+      });
+    }
 
     return {
       message: 'Task updated successfully',
